@@ -1,2 +1,2 @@
 # distanc3d
-Compute distances over 3D images
+Compute 3D image distances using Dijkstra's algorithm
