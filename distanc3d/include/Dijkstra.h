@@ -345,8 +345,6 @@ std::size_t runDijkstra(
     const int u = pqueue.top().first;
     pqueue.pop();
 
-    // os << "\n\nu = " << u << std::endl;
-
     const glm::ivec3 uCoord = indexToCoord(u, imageDims);
     const std::size_t uu = ST(u);
 
@@ -362,21 +360,13 @@ std::size_t runDijkstra(
 
     const TDist uSrcEuclidDist = static_cast<TDist>(sourceEuclidDist.data() ? sourceEuclidDist[ST(uSrcIndex)] : 0);
 
-    // os << "\tuCoord = " << glm::to_string(uCoord) << std::endl;
-    // os << "\tuSrcIndex = " << uSrcIndex << std::endl;
-    // os << "\tuSrcCoord = " << glm::to_string(uSrcCoord) << std::endl;
-    // os << "\tuSrcPos = " << glm::to_string(uSrcPos) << std::endl;
-
     // Loop over all neighbors v of u
     for (const Neighbor& neighbor : neighborhood)
     {
       const glm::ivec3 vCoord = uCoord + neighbor.dir;
 
-      // os << "\n\tvCoord = " << glm::to_string(vCoord) << std::endl;
-
       if (glm::any(glm::lessThan(vCoord, zeroIndex)) ||
           glm::any(glm::greaterThanEqual(vCoord, imageDims))) {
-        // os << "\tDo not update v, since it is outside the image bounds" << std::endl;
         continue; // Do not update v, since it is outside the image bounds
       }
 
@@ -384,16 +374,11 @@ std::size_t runDijkstra(
       const int v = u + neighbor.offset; // voxel index of v
       const std::size_t vv = ST(v);
 
-      // os << "\tvPos = " << glm::to_string(vPos) << std::endl;
-      // os << "\tv = " << uSrcIndex << std::endl;
-
       if (isValidIndex && !isValidIndex(v)) {
-        // os << "\tDo not update v, since it is outside the mask" << std::endl;
         continue; // Do not update v, since it is outside the mask
       }
 
       if (SOURCE_INDEX == sourceIndex[vv]) {
-        // os << "\tDo not update v, since it is a source" << std::endl;
         continue; // Do not update v, since it is a source
       }
 
@@ -402,7 +387,6 @@ std::size_t runDijkstra(
 
       // New Euclidean distance of v equals (source distance) + (distance from source to v)
       const TDist vEuclidDistNew = uSrcEuclidDist + static_cast<TDist>(glm::distance(uSrcPos, vPos));
-      // os << "\tvEuclidDistNew = " << vEuclidDistNew << std::endl;
 
       if (computeImageDist && imageDist.data())
       {
@@ -433,8 +417,6 @@ std::size_t runDijkstra(
           sourceIndex[vv] = uSrcIndex;
           euclidDist[vv] = vEuclidDistNew;
 
-          // os << "\tUPDATE with vEuclidDistNew = " << vEuclidDistNew << std::endl;
-
           if (parentIndex.data()) {
             parentIndex[vv] = u;
           }
@@ -450,7 +432,6 @@ std::size_t runDijkstra(
         }
         else {
           pqueue.push(std::make_pair(vv, vTotalDistNew));
-          // os << "\tpush onto queue: v = " << v << std::endl;
         }
 
         ++numQueueUpdates;
