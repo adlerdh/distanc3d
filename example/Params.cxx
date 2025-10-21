@@ -48,9 +48,9 @@ std::ostream& operator<<(std::ostream& os, const Params& p)
   };
 
   os << "Parameters:\n";
-  os << "  seed: " << p.seed << "\n";
+  os << "  source: " << p.source << "\n";
   print_opt("image", p.image);
-  print_opt("seedEuclidDist", p.seedEuclidDist);
+  print_opt("sourceEuclidDist", p.sourceEuclidDist);
   print_opt("mask", p.mask);
   print_opt("seg", p.seg);
   print_opt("totalDist", p.totalDist);
@@ -78,9 +78,9 @@ std::optional<Params> parse(int argc, char* argv[])
   argparse::ArgumentParser program("Dijkstra", "1.0.0");
   program.add_description("Compute shortest paths on images using Dijkstra's algorithm");
 
-  program.add_argument("--seed").help("Seed image").required();
+  program.add_argument("--source").help("Source image").required();
   program.add_argument("--image").help("Input image used for edge weights");
-  program.add_argument("--seed-dist").help("Input seed Euclidean distance image");
+  program.add_argument("--source-dist").help("Input source Euclidean distance image");
   program.add_argument("--mask").help("Input mask image of valid voxels");
   program.add_argument("--seg").help("Output segmentation output image");
   program.add_argument("--total-dist").help("Output total distance output image");
@@ -103,10 +103,10 @@ std::optional<Params> parse(int argc, char* argv[])
   }
 
   Params params;
-  params.seed = program.get<std::string>("seed");
+  params.source = program.get<std::string>("source");
 
   if (program.present("--image")) params.image = program.get<std::string>("--image");
-  if (program.present("--seed-dist")) params.seedEuclidDist = program.get<std::string>("--seed-dist");
+  if (program.present("--source-dist")) params.sourceEuclidDist = program.get<std::string>("--source-dist");
   if (program.present("--mask")) params.mask = program.get<std::string>("--mask");
   if (program.present("--seg")) params.seg = program.get<std::string>("--seg");
   if (program.present("--total-dist")) params.totalDist = program.get<std::string>("--total-dist");

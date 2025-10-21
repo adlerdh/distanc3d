@@ -45,7 +45,7 @@ constexpr int NO_SOURCE = -1;
  * @param[in] imageDims Image dimensions
  * @return Linear voxel index
  */
-int coordToIndex(const glm::ivec3& coord, const glm::ivec3& imageDims)
+inline int coordToIndex(const glm::ivec3& coord, const glm::ivec3& imageDims)
 {
   return (coord.z * imageDims.y + coord.y) * imageDims.x + coord.x;
 }
@@ -56,7 +56,7 @@ int coordToIndex(const glm::ivec3& coord, const glm::ivec3& imageDims)
  * @param[in] imageDims Image dimensions
  * @return 3D voxel coordinates
  */
-glm::ivec3 indexToCoord(int index, const glm::ivec3& imageDims)
+inline glm::ivec3 indexToCoord(int index, const glm::ivec3& imageDims)
 {
   const std::div_t zQuotRem = std::div(index, imageDims.x * imageDims.y);
   const std::div_t xyQuotRem = std::div(zQuotRem.rem, imageDims.x);
@@ -98,7 +98,7 @@ std::ostream& operator<<(std::ostream& os, const std::vector<Neighbor>& hood)
  * @param[in] voxelSize Image voxel size in physical units
  * @return Neighborhood
  */
-std::vector<Neighbor> makeNeighborhood(const glm::ivec3& imageDims, const glm::dvec3& voxelSize)
+std::vector<Neighbor> makeNeighborhood26(const glm::ivec3& imageDims, const glm::dvec3& voxelSize)
 {
   std::vector<Neighbor> hood;
 
@@ -116,6 +116,33 @@ std::vector<Neighbor> makeNeighborhood(const glm::ivec3& imageDims, const glm::d
         hood.push_back(n);
       }
     }
+  }
+
+  return hood;
+}
+
+/**
+ * @brief Create a 3x3x3 neighborhood of 6 voxels for a 3D image.
+ * @param[in] imageDims Image dimensions
+ * @param[in] voxelSize Image voxel size in physical units
+ * @return Neighborhood
+ */
+std::vector<Neighbor> makeNeighborhood6(const glm::ivec3& imageDims, const glm::dvec3& voxelSize)
+{
+  std::vector<Neighbor> hood;
+
+  const std::array<glm::ivec3, 6> offsets{
+    glm::ivec3{-1, 0, 0}, glm::ivec3{1, 0, 0},
+    glm::ivec3{0, -1, 0}, glm::ivec3{0, 1, 0},
+    glm::ivec3{0, 0, -1}, glm::ivec3{0, 0, 1}
+  };
+
+  for (std::size_t i = 0; i < 6; ++i) {
+    Neighbor n;
+    n.dir = offsets[i];
+    n.offset = coordToIndex(n.dir, imageDims);
+    n.distance = glm::length(voxelSize * glm::dvec3{n.dir});
+    hood.push_back(n);
   }
 
   return hood;
@@ -141,12 +168,12 @@ std::vector<Neighbor> makeNeighborhood(const glm::ivec3& imageDims, const glm::d
 template<typename TLabel, typename TDist>
 bool validateData(
   const glm::ivec3& imageDims,
-  const span<TLabel> sourceLabel,
-  // const span<TDist> sourceEuclidDist,
-  const span<TDist> imageDist,
-  const span<TDist> euclidDist,
-  const span<int> sourceIndex,
-  const span<int> parentIndex,
+  const span<const TLabel> sourceLabel,
+  const span<const TDist> sourceEuclidDist,
+  const span<const TDist> imageDist,
+  const span<const TDist> euclidDist,
+  const span<const int> sourceIndex,
+  const span<const int> parentIndex,
   std::ostream& os)
 {
   const auto N = static_cast<std::size_t>(imageDims.x * imageDims.y * imageDims.z);
@@ -160,14 +187,10 @@ bool validateData(
     return false;
   }
 
-  // if (!sourceEuclidDist.data()) {
-  //   os << "Source Euclidean distance image is null\n";
-  //   return false;
-  // }
-  // else if (N != sourceEuclidDist.size()) {
-  //   os << "Source Euclidean distance image size mismatch\n";
-  //   return false;
-  // }
+  if (sourceEuclidDist.data() && N != sourceEuclidDist.size()) {
+    os << "Source Euclidean distance image size mismatch\n";
+    return false;
+  }
 
   if (!imageDist.data()) {
     os << "Image-based distance image is null\n";
@@ -230,16 +253,16 @@ bool validateData(
  */
 template<typename TLabel, typename TDist>
 bool initializeData(
-  const span<TLabel> sourceLabel,
-  const span<TDist> sourceEuclidDist,
+  span<const TLabel> sourceLabel,
+  span<const TDist> sourceEuclidDist,
   span<TDist> euclidDist,
   span<TDist> imageDist,
   span<int> sourceIndex,
   span<int> parentIndex,
   IPriorityQueue<QueueItem<TDist>>& pqueue)
 {
-  static constexpr auto MAX_DIST = std::numeric_limits<TDist>::max();
-  static constexpr auto ZERO_DIST = static_cast<TDist>(0.0);
+  constexpr auto MAX_DIST = std::numeric_limits<TDist>::max();
+  constexpr auto ZERO_DIST = static_cast<TDist>(0.0);
 
   pqueue.clear();
 
@@ -248,14 +271,11 @@ bool initializeData(
     const auto ii = static_cast<int>(i);
 
     if (sourceLabel[i] > 0) {
-      // i is a source, so assign it zero distance and itself as its source:
+      // i is a source, so assign it initial distances and itself as its source:
       imageDist[i] = ZERO_DIST;
+      euclidDist[i] = sourceEuclidDist.data() ? sourceEuclidDist[i] : ZERO_DIST;
       sourceIndex[i] = ii;
-      pqueue.push(std::make_pair(ii, ZERO_DIST));
-
-      if (sourceEuclidDist.data()) {
-        euclidDist[i] = sourceEuclidDist[i];
-      }
+      pqueue.push(std::make_pair(ii, imageDist[i] + euclidDist[i]));
     }
     else {
       // i is not a source, so assign it max distance and no source:
@@ -308,35 +328,36 @@ template<typename TDist>
 std::size_t runDijkstra(
   const glm::ivec3& imageDims,
   const glm::dvec3& voxelSpacing,
-  const span<TDist> sourceEuclidDist,
+  const std::vector<Neighbor>& neighborhood,
+  const span<const TDist> sourceEuclidDist,
   span<int> sourceIndex,
   span<int> parentIndex,
-  span<TDist> imageDist,
   span<TDist> euclidDist,
-  TDist imageWeight,
+  span<TDist> imageDist,
   TDist euclidWeight,
+  TDist imageWeight,
   IPriorityQueue<QueueItem<TDist>>& pqueue,
   std::function<TDist(int u, int v)> computeImageDist,
   std::function<bool(int index)> isValidIndex,
+  std::function<bool(int index)> isSource,
   const std::optional<TDist>& stopEuclidDist,
   unsigned int debugPrintInterval,
   std::ostream& os)
 {
-  static constexpr auto MAX_DIST = std::numeric_limits<TDist>::max();
+  constexpr auto MAX_DIST = std::numeric_limits<TDist>::max();
   const glm::ivec3 zeroIndex{0, 0, 0};
-  const auto neighborhood = makeNeighborhood(imageDims, voxelSpacing);
 
   std::size_t numIter = 0;
   std::size_t numQueueUpdates = 0;
 
   if (debugPrintInterval) {
-    os << "Iteration, queue size, queue updates" << std::endl;
+    os << "Iteration, queue size, queue updates\n";
   }
 
   while (!pqueue.empty())
   {
     if (debugPrintInterval && (numIter % debugPrintInterval == 0)) {
-      os << numIter << ", " << pqueue.size() << ", " << numQueueUpdates << std::endl;
+      os << numIter << ", " << pqueue.size() << ", " << numQueueUpdates << '\n';
     }
 
     ++numIter;
@@ -349,7 +370,7 @@ std::size_t runDijkstra(
     const std::size_t uu = ST(u);
 
     if (stopEuclidDist && *stopEuclidDist < euclidDist[uu]) {
-      os << "Stopping Euclidean distance " << *stopEuclidDist << " reached" << std::endl;
+      os << "Stopping Euclidean distance " << *stopEuclidDist << " reached" << '\n';
       break; // Minimum distance exceeds stopping distance
     }
 
@@ -358,7 +379,7 @@ std::size_t runDijkstra(
     const glm::ivec3 uSrcCoord = indexToCoord(uSrcIndex, imageDims);
     const glm::dvec3 uSrcPos = voxelSpacing * glm::dvec3{uSrcCoord};
 
-    const TDist uSrcEuclidDist = static_cast<TDist>(sourceEuclidDist.data() ? sourceEuclidDist[ST(uSrcIndex)] : 0);
+    const TDist uSrcEuclidDist = sourceEuclidDist.data() ? sourceEuclidDist[ST(uSrcIndex)] : 0;
 
     // Loop over all neighbors v of u
     for (const Neighbor& neighbor : neighborhood)
@@ -378,7 +399,7 @@ std::size_t runDijkstra(
         continue; // Do not update v, since it is outside the mask
       }
 
-      if (SOURCE_INDEX == sourceIndex[vv]) {
+      if (isSource(v)) {
         continue; // Do not update v, since it is a source
       }
 
@@ -444,14 +465,16 @@ std::size_t runDijkstra(
 
 /**
  * @brief Create a segmentation label image from the source and label images
- * @param[in] sourceIndexImage Source index image
- * @param[in] sourceLabelImage Source label iamge
- * @param[out] segLabelImage Segmentation label iamge
+ * @param[in] sourceIndex Source index image
+ * @param[in] sourceLabel Source label iamge
+ * @param[out] segLabel Segmentation label iamge
  * @return True iff the segmentation label image was created successfully
  */
 template<typename TLabel>
 bool makeSegmentationImage(
-  const span<int> sourceIndex, const span<TLabel> sourceLabel, span<TLabel> segLabel)
+  span<const int> sourceIndex,
+  span<const TLabel> sourceLabel,
+  span<TLabel> segLabel)
 {
   if (!sourceIndex.data() || !sourceLabel.data() || !segLabel.data()) {
     return false;
@@ -471,26 +494,26 @@ bool makeSegmentationImage(
 /**
  * @brief Create the shortest path from a voxel to its closest source voxel
  *
- * @param[in] parentIndexImage Parent index image (computed from \c dijkstra)
+ * @param[in] parentIndex Parent index image (computed from \c dijkstra)
  * @param[in] destIndex Index of destination voxel of path
  *
  * @return Vector of voxel indices along the path, beginning at the destination voxel
  * and ending at the closest source voxel.
  */
-std::vector<int> makeShortestPath(const span<int> parentIndexImage, int destIndex)
+std::vector<int> makeShortestPath(span<const int> parentIndex, int destIndex)
 {
   std::vector<int> path;
 
-  if (!parentIndexImage.data()) {
+  if (!parentIndex.data()) {
     return path;
   }
 
   int i = destIndex;
   path.push_back(i);
 
-  while (i != parentIndexImage[ST(i)])
+  while (i != parentIndex[ST(i)])
   {
-    i = parentIndexImage[ST(i)];
+    i = parentIndex[ST(i)];
     path.push_back(i);
   }
 
@@ -500,7 +523,7 @@ std::vector<int> makeShortestPath(const span<int> parentIndexImage, int destInde
 /**
  * @brief Create a path iamge
  *
- * @tparam TLabel Seed image voxel component type
+ * @tparam TMask Mask image voxel component type
  *
  * @param[in] path Path of voxel indices
  * @param[out] pathImage Binary path image, with path voxels set to 1

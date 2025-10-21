@@ -11,8 +11,8 @@ image (optional) input image //
 imageEdge (absDiff, squareDiff, inverseSpeed, optional) //
 euclideanWeight (1.0, optional) //
 stopDist (optional) stopping total distance //
-seed (required) source label image //
-seedDist (optional) source Euclidean distance image //
+source (required) source label image //
+sourceDist (optional) source Euclidean distance image //
 mask (in, optional) mask image //
 seg (out, optional) segmentation label image //
 totalDist (out, optional) total distance image //
@@ -39,8 +39,8 @@ struct Params
 {
   using path = std::filesystem::path;
 
-  path seed;
-  std::optional<path> seedEuclidDist;
+  path source;
+  std::optional<path> sourceEuclidDist;
   std::optional<path> image;
   std::optional<path> mask;
   std::optional<path> seg;
@@ -53,13 +53,13 @@ struct Params
   // Number of intervals between debug print statements (use 0 to disable debug prints)
   unsigned int debugInterval = 10000;
 
-  ImageEdgeWeightType imageEdgeWeightType = ImageEdgeWeightType::AbsoluteDiff;
+  ImageEdgeWeightType imageEdgeWeightType{ImageEdgeWeightType::AbsoluteDiff};
 
   // Coefficients that weight the relative contributions of image distance and Euclidean distance
   // when computing the edge distance between two adjacent voxels (nodes in the graph):
   // edge weight = imageWeight * imageDistance + euclidWeight * euclideanDist
-  double imageWeight = 1.0;
-  double euclideanWeight = 1.0;
+  double imageWeight{1.0};
+  double euclideanWeight{1.0};
 
   std::optional<double> stoppingEuclideanDistance;
 };

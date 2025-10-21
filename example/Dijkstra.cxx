@@ -58,12 +58,12 @@ int main(int argc, char* argv[])
 
   // Image voxel types, which could be made configurable
   using TVoxel = float; // image voxels
-  using TLabel = unsigned char; // seed and segmentation voxels
+  using TLabel = unsigned char; // labels of sources and segmentation voxels
   using TMask = unsigned char; // mask voxels
   using TDist = float; // distances
 
   using TImage = itk::Image<TVoxel, Dim>; // for computing image-based distance
-  using TLabelImage = itk::Image<TLabel, Dim>; // for seeds/sources and segmentation labels
+  using TLabelImage = itk::Image<TLabel, Dim>; // for sources and segmentation labels
   using TMaskImage = itk::Image<TMask, Dim>; // for masking out computations
   using TDistImage = itk::Image<TDist, Dim>; // for distances and edge weights between voxels
 
@@ -80,27 +80,26 @@ int main(int argc, char* argv[])
 
   std::cout << *params << std::endl;
 
-  const auto seed = itk::ReadImage<TLabelImage>(params->seed);
-
-  if (!seed) {
-    std::cerr << "Null source/seed image " << params->seed << std::endl;
+  const auto source = itk::ReadImage<TLabelImage>(params->source);
+  if (!source) {
+    std::cerr << "Null source image " << params->source << std::endl;
     return EXIT_FAILURE;
   }
 
-  const auto seedEuclidDist = params->seedEuclidDist
-      ? itk::ReadImage<TDistImage>(*params->seedEuclidDist) : nullptr;
+  const auto seedEuclidDist = params->sourceEuclidDist
+      ? itk::ReadImage<TDistImage>(*params->sourceEuclidDist) : nullptr;
   const auto image = params->image ? itk::ReadImage<TImage>(*params->image) : nullptr;
   const auto mask = params->mask ? itk::ReadImage<TMaskImage>(*params->mask) : nullptr;
 
-  const auto size = seed->GetLargestPossibleRegion().GetSize();
-  const auto sp = seed->GetSpacing();
+  const auto size = source->GetLargestPossibleRegion().GetSize();
+  const auto sp = source->GetSpacing();
   const auto N = static_cast<std::size_t>(size[0] * size[1] * size[2]);
 
   const glm::ivec3 dims{size[0], size[1], size[2]};
   const glm::dvec3 spacing(sp[0], sp[1], sp[2]);
 
   std::cout << "\nImage dimensions: " << dims.x << ", " << dims.y << ", " << dims.z
-            << "\nVoxel spacing (mm): " << spacing.x << ", " << spacing.y << ", " << spacing.z << std::endl;
+            << "\nVoxel spacing (mm): " << spacing.x << ", " << spacing.y << ", " << spacing.z << '\n';
 
   // Distance function between image voxels u and v -- when null, not used
   std::function<TDist(int u, int v)> computeImageDist = nullptr;
@@ -138,17 +137,20 @@ int main(int argc, char* argv[])
     std::cout << "Created isValidIndex" << std::endl;
   }
 
+  auto isSource = [&source] (int u) {
+    return source->GetBufferPointer()[static_cast<std::size_t>(u)] > 0;
+  };
+
   // Output images:
-  std::vector<int> seedIndex(N, -1); // Seed/source index
+  std::vector<int> sourceIndex(N, -1); // Source index
   std::vector<int> parentIndex(N, -1); // Parent index
   std::vector<TDist> imageDist(N, 0); // Image distance (should be made optional)
   std::vector<TDist> euclidDist(N, 0); // Euclidean distance (should be made optional)
 
-  std::span<TDist> seedEuclidDistSpan;
+  std::span<const TDist> sourceEuclidDistSpan;
 
   if (seedEuclidDist && seedEuclidDist->GetBufferPointer()) {
-    seedEuclidDistSpan = std::span<TDist>(seedEuclidDist->GetBufferPointer(), N);
-    std::cout << "Created seedEuclidDistSpan" << std::endl;
+    sourceEuclidDistSpan = std::span<const TDist>(seedEuclidDist->GetBufferPointer(), N);
   }
 
   // Choose a priority queue to use for running Dijkstra's algorithm:
@@ -160,12 +162,14 @@ int main(int argc, char* argv[])
   // GPriorityQueue<d3d::QueueItem<TDistance>, LessComparer> queue;
   // JkdsPriorityQueue<d3d::QueueItem<TDistance>, MutableKeys> queue;
 
-  /// @todo Validate image, seedEuclidDist, others?
   if (!d3d::validateData(
         dims,
-        span{seed->GetBufferPointer(), N},
-        span{imageDist}, span{euclidDist},
-        span{seedIndex}, span{parentIndex},
+        span<const TLabel>{source->GetBufferPointer(), N},
+        sourceEuclidDistSpan,
+        span<const TDist>{imageDist},
+        span<const TDist>{euclidDist},
+        span<const int>{sourceIndex},
+        span<const int>{parentIndex},
         std::cerr))
   {
     std::cerr << "Failed to validate data" << std::endl;
@@ -173,10 +177,12 @@ int main(int argc, char* argv[])
   }
 
   if (!d3d::initializeData(
-        span{seed->GetBufferPointer(), N},
-        seedEuclidDistSpan,
-        span{imageDist}, span{euclidDist},
-        span{seedIndex}, span{parentIndex},
+        span<const TLabel>{source->GetBufferPointer(), N},
+        sourceEuclidDistSpan,
+        span{imageDist},
+        span{euclidDist},
+        span{sourceIndex},
+        span{parentIndex},
         pqueue))
   {
     std::cerr << "Failed to initialize priority queue" << std::endl;
@@ -192,16 +198,21 @@ int main(int argc, char* argv[])
 
   NullOstream nullStream;
 
+  const auto neighborhood = d3d::makeNeighborhood26(dims, spacing);
+
   const std::size_t updates = d3d::runDijkstra(
-    dims, spacing,
-    seedEuclidDistSpan,
-    span{seedIndex}, span{parentIndex},
-    span{imageDist}, span{euclidDist},
-    static_cast<TDist>(params->imageWeight),
+    dims, spacing, neighborhood,
+    sourceEuclidDistSpan,
+    span{sourceIndex},
+    span{parentIndex},
+    span{euclidDist},
+    span{imageDist},
     static_cast<TDist>(params->euclideanWeight),
+    static_cast<TDist>(params->imageWeight),
     pqueue,
     computeImageDist,
     isValidIndex,
+    isSource,
     stoppingEuclidDist,
     params->debugInterval,
     std::cout);
@@ -217,22 +228,22 @@ int main(int argc, char* argv[])
     std::vector<TLabel> segLabel(N, 0);
 
     const bool ret = d3d::makeSegmentationImage(
-      seedIndex, span{seed->GetBufferPointer(), N}, span{segLabel});
+      sourceIndex, span<const TLabel>{source->GetBufferPointer(), N}, span{segLabel});
 
     if (!ret) {
       std::cerr << "Error creating segmentation image" << std::endl;
       return EXIT_FAILURE;
     }
 
-    writeImage<TLabelImage>(createImage(seed, segLabel.data(), segLabel.size()), *params->seg);
+    writeImage<TLabelImage>(createImage(source, segLabel.data(), segLabel.size()), *params->seg);
   }
 
   if (params->euclidDist) {
-    writeImage<TDistImage>(createImage(seed, euclidDist.data(), euclidDist.size()), *params->euclidDist);
+    writeImage<TDistImage>(createImage(source, euclidDist.data(), euclidDist.size()), *params->euclidDist);
   }
 
   if (computeImageDist && params->imageDist) {
-    writeImage<TDistImage>(createImage(seed, imageDist.data(), imageDist.size()), *params->imageDist);
+    writeImage<TDistImage>(createImage(source, imageDist.data(), imageDist.size()), *params->imageDist);
   }
 
   if (params->totalDist)
@@ -254,14 +265,14 @@ int main(int argc, char* argv[])
       }
     }
 
-    writeImage<TDistImage>(createImage(seed, totalDist.data(), totalDist.size()), *params->totalDist);
+    writeImage<TDistImage>(createImage(source, totalDist.data(), totalDist.size()), *params->totalDist);
   }
 
   if (params->destVoxel)
   {
     // Create and print shortest path:
     const int destIndex = d3d::coordToIndex(*params->destVoxel, dims);
-    const std::vector<int> path = d3d::makeShortestPath(span{parentIndex}, destIndex);
+    const std::vector<int> path = d3d::makeShortestPath(span<const int>{parentIndex}, destIndex);
 
     d3d::printShortestPath(std::cout, path, dims);
 
@@ -270,7 +281,7 @@ int main(int argc, char* argv[])
       std::vector<TMask> pathImage(N);
       d3d::makePathImage(path, std::span{pathImage});
 
-      writeImage<TMaskImage>(createImage(seed, pathImage.data(), pathImage.size()), *params->pathImage);
+      writeImage<TMaskImage>(createImage(source, pathImage.data(), pathImage.size()), *params->pathImage);
     }
   }
 
