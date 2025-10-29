@@ -79,19 +79,19 @@ std::optional<Params> parse(int argc, char* argv[])
   program.add_description("Compute shortest paths on images using Dijkstra's algorithm");
 
   program.add_argument("--source").help("Source image").required();
-  program.add_argument("--image").help("Input image used for edge weights");
+  program.add_argument("--image").help("Input image used for image-based edge weights");
   program.add_argument("--source-dist").help("Input source Euclidean distance image");
   program.add_argument("--mask").help("Input mask image of valid voxels");
-  program.add_argument("--seg").help("Output segmentation output image");
-  program.add_argument("--total-dist").help("Output total distance output image");
-  program.add_argument("--euclid-dist").help("Output Euclidean distance output image");
-  program.add_argument("--image-dist").help("Output image distance output image");
-  program.add_argument("--dest-voxel").nargs(3).scan<'i', int>().help("Destination voxel (i j k)");
+  program.add_argument("--seg").help("Output segmentation image");
+  program.add_argument("--total-dist").help("Output total distance image");
+  program.add_argument("--euclid-dist").help("Output Euclidean distance image");
+  program.add_argument("--image-dist").help("Output image-based distance image");
+  program.add_argument("--dest-voxel").nargs(3).scan<'i', int>().help("Destination voxel for path (i j k)");
   program.add_argument("--path-image").help("Output shortest path image");
   program.add_argument("--debug-interval").scan<'u', unsigned int>().default_value(10000u).nargs(1).help("Debug print interval");
   program.add_argument("--image-weight-type").default_value(std::string("AbsDiff")).nargs(1)
       .help("Image edge weight type (AbsDiff, SqDiff, Src, Dst, Min, Mean, Max)");
-  program.add_argument("--image-weight").scan<'g', double>().default_value(1.0).nargs(1).help("Image distance weight");
+  program.add_argument("--image-weight").scan<'g', double>().default_value(1.0).nargs(1).help("Image-based distance weight");
   program.add_argument("--euclid-weight").scan<'g', double>().default_value(1.0).nargs(1).help("Euclidean distance weight");
   program.add_argument("--stop-euclid-dist").scan<'g', double>().help("Stopping Euclidean distance");
 

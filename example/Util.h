@@ -8,14 +8,14 @@
 #include <iostream>
 
 /**
- * @brief Create a 3D ITK image from raw image data
+ * @brief Create a 3D ITK image from raw pixel data. The image will not own the pixel data.
  *
  * @tparam T Image component type
  * @param[in] ref Reference image
  * @param[in] data Raw image data
  * @param[in] size Number of image voxels
  *
- * @return ITK image aligned with refImage with voxel values from imageData
+ * @return ITK image aligned with \c ref with voxel values from \c data
  */
 template<typename T>
 typename itk::Image<T, 3>::Pointer createImage(
@@ -61,9 +61,40 @@ typename itk::Image<T, 3>::Pointer createImage(
 }
 
 /**
+ * @brief Create a new ITK image initialized to given raw pixel data.
+ *
+ * @tparam T Image component type
+ * @tparam Dim Image dimension
+ * @param[in] ref Reference image
+ * @param[in] data Raw image data
+ *
+ * @return ITK image with space of \c ref and voxel values from \c data
+ */
+template<typename T, unsigned int Dim>
+typename itk::Image<T, Dim>::Pointer createImage(
+  const typename itk::Image<T, Dim>& ref, const T* data)
+{
+  if (!data) {
+    return nullptr;
+  }
+
+  const auto& region = ref.GetLargestPossibleRegion();
+  auto image = itk::Image<T, Dim>::New();
+  image->SetRegions(region);
+  image->SetSpacing(ref.GetSpacing());
+  image->SetOrigin(ref.GetOrigin());
+  image->SetDirection(ref.GetDirection());
+  image->Allocate();
+
+  std::copy_n(data, region.GetNumberOfPixels(), image->GetBufferPointer());
+  image->DisconnectPipeline();
+  return image;
+}
+
+/**
  * @brief Write an ITK image to disk
  * @param[in] image ITK image
- * @param[in] outFilename File name
+ * @param[in] filename File name
  */
 template<class ImageType>
 void writeImage(const typename ImageType::Pointer image, const std::filesystem::path& filename)

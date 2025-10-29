@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "Dijkstra.h"
 #include "Params.h"
 #include "Util.h"
@@ -19,36 +20,6 @@
 #include <chrono>
 #include <iostream>
 #include <vector>
-
-// ./example/Dijkstra --seed ../data/seed.nii.gz --image ../data/image.nii.gz --seg ../data/seg.nii.gz --total-dist ../data/total-dist.nii.gz --euclid-dist ../data/euclid-dist.nii.gz --image-dist ../data/image-dist.nii.gz --image-weight 0.0 --euclid-weight 1.0 --stop-euclid-dist 50
-
-namespace
-{
-/// Greater-than comparator that provides a strict weak ordering on priority queue items
-template<typename T>
-struct GreaterThanComparer
-{
-  bool operator()(const d3d::QueueItem<T>& a, const d3d::QueueItem<T>& b) const
-  {
-    return a.second > b.second;
-  }
-};
-
-class NullBuffer : public std::streambuf
-{
-public:
-  int overflow(int c) override { return c; }
-  std::streamsize xsputn(const char*, std::streamsize n) override { return n; }
-};
-
-class NullOstream : public std::ostream
-{
-public:
-  NullOstream() : std::ostream(&m_buffer) {}
-private:
-  NullBuffer m_buffer;
-};
-} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -147,10 +118,10 @@ int main(int argc, char* argv[])
   std::vector<TDist> imageDist(N, 0); // Image distance (should be made optional)
   std::vector<TDist> euclidDist(N, 0); // Euclidean distance (should be made optional)
 
-  std::span<const TDist> sourceEuclidDistSpan;
+  span<const TDist> sourceEuclidDistSpan;
 
   if (seedEuclidDist && seedEuclidDist->GetBufferPointer()) {
-    sourceEuclidDistSpan = std::span<const TDist>(seedEuclidDist->GetBufferPointer(), N);
+    sourceEuclidDistSpan = span<const TDist>(seedEuclidDist->GetBufferPointer(), N);
   }
 
   // Choose a priority queue to use for running Dijkstra's algorithm:
@@ -279,7 +250,7 @@ int main(int argc, char* argv[])
     if (params->pathImage) {
       // Create shortest path image:
       std::vector<TMask> pathImage(N);
-      d3d::makePathImage(path, std::span{pathImage});
+      d3d::makePathImage(path, span{pathImage});
 
       writeImage<TMaskImage>(createImage(source, pathImage.data(), pathImage.size()), *params->pathImage);
     }

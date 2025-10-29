@@ -6,23 +6,6 @@
 #include <ostream>
 #include <optional>
 
-/*
-image (optional) input image //
-imageEdge (absDiff, squareDiff, inverseSpeed, optional) //
-euclideanWeight (1.0, optional) //
-stopDist (optional) stopping total distance //
-source (required) source label image //
-sourceDist (optional) source Euclidean distance image //
-mask (in, optional) mask image //
-seg (out, optional) segmentation label image //
-totalDist (out, optional) total distance image //
-euclidDist (out, optional) total euclidean distance image //
-imageDist (out, optional) total image distance image //
-dest (in, optional) destination voxel //
-path (out, optional) path image //
-debugPrintInterval (10000, optional)
-*/
-
 /// @brief How to compute the edge weight between two voxels?
 enum class ImageEdgeWeightType
 {
@@ -39,16 +22,16 @@ struct Params
 {
   using path = std::filesystem::path;
 
-  path source;
-  std::optional<path> sourceEuclidDist;
-  std::optional<path> image;
-  std::optional<path> mask;
-  std::optional<path> seg;
-  std::optional<path> totalDist;
-  std::optional<path> euclidDist;
-  std::optional<path> imageDist;
-  std::optional<glm::ivec3> destVoxel;
-  std::optional<path> pathImage;
+  path source; //!< source label image (input, required)
+  std::optional<path> sourceEuclidDist; //!< source Elucidean distances (input)
+  std::optional<path> image; //!< image used to derive graph weights (input)
+  std::optional<path> mask; //!< mask image within which distances are computed (input)
+  std::optional<path> seg; //!< segmented image (output)
+  std::optional<path> totalDist; //!< total distance image (output)
+  std::optional<path> euclidDist; //!< Euclidean distance image (output)
+  std::optional<path> imageDist; //!< image-based distance image (output)
+  std::optional<glm::ivec3> destVoxel; //!< destination voxel index for path (output)
+  std::optional<path> pathImage; //!< path image (output)
 
   // Number of intervals between debug print statements (use 0 to disable debug prints)
   unsigned int debugInterval = 10000;
@@ -58,10 +41,10 @@ struct Params
   // Coefficients that weight the relative contributions of image distance and Euclidean distance
   // when computing the edge distance between two adjacent voxels (nodes in the graph):
   // edge weight = imageWeight * imageDistance + euclidWeight * euclideanDist
-  double imageWeight{1.0};
-  double euclideanWeight{1.0};
+  double imageWeight{1.0}; //!< image-based distance weight
+  double euclideanWeight{1.0}; //!< Euclidean distance weight
 
-  std::optional<double> stoppingEuclideanDistance;
+  std::optional<double> stoppingEuclideanDistance; //!< distance at which to stop computations
 };
 
 std::ostream& operator<<(std::ostream&, const Params&);

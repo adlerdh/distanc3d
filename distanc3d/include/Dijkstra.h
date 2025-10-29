@@ -155,12 +155,12 @@ std::vector<Neighbor> makeNeighborhood6(const glm::ivec3& imageDims, const glm::
  * @tparam TDist (must be floating-point)
  *
  * @param[in] imageDims Dimensions of all images
- * @param[in] sourceLabel Input source label image
- * @param[in] sourceEuclidDist Input source Euclidean distance image
- * @param[in] imageDist Output image-based distance image
- * @param[in] euclidDist Output Euclidean distance image
- * @param[in] sourceIndex Output source index image
- * @param[in] parentIndex Output parent index image
+ * @param[in] sourceLabel Input source label image (required)
+ * @param[in] sourceEuclidDist Input source Euclidean distance image (optional)
+ * @param[in] imageDist Output image-based distance image (optional)
+ * @param[in] euclidDist Output Euclidean distance image (required)
+ * @param[in] sourceIndex Output source index image (required)
+ * @param[in] parentIndex Output parent index image (optional)
  * @param[out] os Output stream for logging
  *
  * @return True iff validation passes.
@@ -178,26 +178,14 @@ bool validateData(
 {
   const auto N = static_cast<std::size_t>(imageDims.x * imageDims.y * imageDims.z);
 
+  // Required images:
+
   if (!sourceLabel.data()) {
     os << "Source label image is null\n";
     return false;
   }
   else if (N != sourceLabel.size()) {
     os << "Source label image size mismatch\n";
-    return false;
-  }
-
-  if (sourceEuclidDist.data() && N != sourceEuclidDist.size()) {
-    os << "Source Euclidean distance image size mismatch\n";
-    return false;
-  }
-
-  if (!imageDist.data()) {
-    os << "Image-based distance image is null\n";
-    return false;
-  }
-  else if (N != imageDist.size()) {
-    os << "Image-based distance image size mismatch\n";
     return false;
   }
 
@@ -219,11 +207,19 @@ bool validateData(
     return false;
   }
 
-  if (!parentIndex.data()) {
-    os << "Parent index image is null\n";
+  // Optional images:
+
+  if (sourceEuclidDist.data() && N != sourceEuclidDist.size()) {
+    os << "Source Euclidean distance image size mismatch\n";
     return false;
   }
-  else if (N != parentIndex.size()) {
+
+  if (imageDist.data() && N != imageDist.size()) {
+    os << "Image-based distance image size mismatch\n";
+    return false;
+  }
+
+  if (parentIndex.data() && N != parentIndex.size()) {
     os << "Parent index image size mismatch\n";
     return false;
   }
@@ -243,7 +239,7 @@ bool validateData(
  * @param[out] euclidDist Euclidean distance:
  * source voxel distance set to either \c sourceDistance (if it exists) or to zero otherwise;
  * all other distances set to \c std::numeric_limits<DistanceType>::max()
- * @param[out] imageDist Image distance
+ * @param[out] imageDist Image distance (optional)
  * @param[out] sourceIndex Source index image: each source voxel i set to i (itself as source);
  * all other voxels set to -1
  * @param[out] parentIndex Parent index image: each voxel i set to i (itself as parent)
@@ -272,14 +268,18 @@ bool initializeData(
 
     if (sourceLabel[i] > 0) {
       // i is a source, so assign it initial distances and itself as its source:
-      imageDist[i] = ZERO_DIST;
+      if (imageDist.data()) {
+        imageDist[i] = ZERO_DIST;
+      }
       euclidDist[i] = sourceEuclidDist.data() ? sourceEuclidDist[i] : ZERO_DIST;
       sourceIndex[i] = ii;
       pqueue.push(std::make_pair(ii, imageDist[i] + euclidDist[i]));
     }
     else {
       // i is not a source, so assign it max distance and no source:
-      imageDist[i] = MAX_DIST;
+      if (imageDist.data()) {
+        imageDist[i] = MAX_DIST;
+      }
       euclidDist[i] = MAX_DIST;
       sourceIndex[i] = NO_SOURCE;
     }
@@ -302,15 +302,16 @@ bool initializeData(
  *
  * @param[in] imageDims Image dimensions (voxels)
  * @param[in] voxelSpacing Voxel spacing (mm)
- * @param[in] sourceEuclidDist Euclidean distance of source
- * @param[in, out] sourceIndex
- * Input: The value of each source (seed) voxel i is its own index i. All non-source voxels
- * have index -1 (NO_SOURCE).
- * Output: Each voxel is assigned the index of its nearest source, thereby creating a
- * segmentation of the image.
- * @param[in, out] parentIndex Parent index image
- * @param[in, out] imageDistance Distances based on image voxel values
- * @param[in, out] euclidDistance Distances based on Euclidean distance from sources
+ * @param[in] neighborhood Neighborhood stencil
+ * @param[in] sourceEuclidDist Euclidean distance of source (optional)
+ * @param[in, out] sourceIndex, where
+ *   -Input:  The value of each source voxel i is its own index i. All non-source voxels
+ *            have index -1 (NO_SOURCE).
+ *   -Output: Each voxel is assigned the index of its nearest source, thereby creating a
+ *            segmentation of the image.
+ * @param[in, out] parentIndex Parent index image (optional)
+ * @param[in, out] imageDistance Distances based on image voxel values (optional)
+ * @param[in, out] euclidDistance Distances based on Euclidean distance from sources (required)
  * @param[in] imageWeight Weight of the image distance
  * @param[in] euclidWeight Weight of the Euclidean distance
  * @param[in, out] pqueue Priority queue
@@ -455,6 +456,124 @@ std::size_t runDijkstra(
           pqueue.push(std::make_pair(vv, vTotalDistNew));
         }
 
+        ++numQueueUpdates;
+      }
+    }
+  }
+
+  return numQueueUpdates;
+}
+
+/**
+ * @brief Execute Dijkstra's shortest path algorithm on a 3D image to completion.
+ * Graph nodes correspond to voxel centers of the 3D image and graph edges connect
+ * neighboring voxels together. This version of the algorithm only uses and computes
+ * Euclidean distances.
+ *
+ * @note This version of the algorithm assumes a priority queue without mutable keys.
+ *
+ * @tparam TDist Type used to represent distances of priority queue entries and
+ * also the component type of voxels in the distance image.
+ *
+ * @param[in] imageDims Image dimensions (voxels)
+ * @param[in] voxelSpacing Voxel spacing (mm)
+ * @param[in] neighborhood Neighborhood stencil
+ * @param[in] sourceEuclidDist Euclidean distance of source (optional)
+ * @param[in, out] sourceIndex, where
+ *   -Input:  The value of each source voxel i is its own index i. All non-source voxels
+ *            have index -1 (NO_SOURCE).
+ *   -Output: Each voxel is assigned the index of its nearest source, thereby creating a
+ *            segmentation of the image.
+ * @param[in, out] imageDistance Distances based on image voxel values (optional)
+ * @param[in, out] euclidDistance Distances based on Euclidean distance from sources (required)
+ * @param[in] imageWeight Weight of the image distance
+ * @param[in] euclidWeight Weight of the Euclidean distance
+ * @param[in, out] pqueue Priority queue with non-mutable keys, i.e. pqueue.mutableKeys() == false
+ * @param[in] computeImageDistance Function to compute distances between two voxels of an image
+ * (optional: ignored if set to nullptr)
+ * @param[in] isValidIndex Function to determine whether v is a valid voxel node in the graph
+ * @param[in] stopEuclidDist Stopping Euclidean distance: the algorithm stops when the Euclidean distance
+ * of the minimum voxel in the priority queue exceeds this value
+ * @param[in] debugPrintInterval Number of iterations between successive debug print statements
+ * (optional: ignored if set to zero)
+ *
+ * @return Number of priority queue updates
+ */
+template<typename TDist>
+std::size_t runEuclideanDijkstra(
+  const glm::ivec3& imageDims,
+  const glm::dvec3& voxelSpacing,
+  const std::vector<Neighbor>& neighborhood,
+  const span<const TDist> sourceEuclidDist,
+  span<int> sourceIndex,
+  span<TDist> euclidDist,
+  IPriorityQueue<QueueItem<TDist>>& pqueue,
+  std::function<bool(int index)> isSource,
+  const std::optional<TDist>& stopEuclidDist,
+  unsigned int debugPrintInterval,
+  std::ostream& os)
+{
+  const glm::ivec3 zeroIndex{0, 0, 0};
+
+  std::size_t numIter = 0;
+  std::size_t numQueueUpdates = 0;
+
+  if (debugPrintInterval) {
+    os << "Iteration, queue size, queue updates\n";
+  }
+
+  while (!pqueue.empty())
+  {
+    if (debugPrintInterval && (numIter % debugPrintInterval == 0)) {
+      os << numIter << ", " << pqueue.size() << ", " << numQueueUpdates << '\n';
+    }
+
+    ++numIter;
+
+    // Pop off u, the index of the minimum distance voxel in the queue
+    const int u = pqueue.top().first;
+    pqueue.pop();
+
+    const glm::ivec3 uCoord = indexToCoord(u, imageDims);
+    const std::size_t uu = ST(u);
+
+    if (stopEuclidDist && *stopEuclidDist < euclidDist[uu]) {
+      os << "Stopping Euclidean distance " << *stopEuclidDist << " reached" << '\n';
+      break; // Minimum distance exceeds stopping distance
+    }
+
+    // Index, voxel coordinate, physical position, and Euclidean distance of u's source
+    const int uSrcIndex = sourceIndex[uu];
+    const glm::ivec3 uSrcCoord = indexToCoord(uSrcIndex, imageDims);
+    const glm::dvec3 uSrcPos = voxelSpacing * glm::dvec3{uSrcCoord};
+
+    const TDist uSrcEuclidDist = sourceEuclidDist.data() ? sourceEuclidDist[ST(uSrcIndex)] : 0;
+
+    // Loop over all neighbors v of u
+    for (const Neighbor& neighbor : neighborhood)
+    {
+      const glm::ivec3 vCoord = uCoord + neighbor.dir;
+
+      if (glm::any(glm::lessThan(vCoord, zeroIndex)) ||
+          glm::any(glm::greaterThanEqual(vCoord, imageDims))) {
+        continue; // Do not update v, since it is outside the image bounds
+      }
+
+      const glm::dvec3 vPos = voxelSpacing * glm::dvec3{vCoord};
+      const int v = u + neighbor.offset; // voxel index of v
+      const std::size_t vv = ST(v);
+
+      if (isSource(v)) {
+        continue; // Do not update v, since it is a source
+      }
+
+      // New Euclidean distance of v equals (source distance) + (distance from source to v)
+      const TDist vEuclidDistNew = uSrcEuclidDist + static_cast<TDist>(glm::distance(uSrcPos, vPos));
+
+      if (vEuclidDistNew < euclidDist[vv]) {
+        sourceIndex[vv] = uSrcIndex;
+        euclidDist[vv] = vEuclidDistNew;
+        pqueue.push(std::make_pair(vv, vEuclidDistNew));
         ++numQueueUpdates;
       }
     }
